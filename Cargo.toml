@@ -1,0 +1,9 @@
+[package]
+name = "youtube_downloader"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+yt-dlp = { version = "1.3.4", features = ["tracing"] }
+clap = { version = "4.5.38", features = ["derive"] }
