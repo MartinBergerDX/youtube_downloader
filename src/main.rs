@@ -4,6 +4,7 @@ use utils::*;
 
 use clap::Parser;
 use std::error::Error;
+use std::time::Duration;
 use std::fmt;
 use std::fs;
 use std::path::Path;
@@ -130,7 +131,8 @@ async fn main() -> Result<(), TestError> {
     let libraries = Libraries::new(youtube, ffmpeg);
 
     println!("Updating yt-dlp executable.");
-    let fetcher = Youtube::new(libraries, output_dir)?;
+    let mut fetcher = Youtube::new(libraries, output_dir)?;
+    fetcher.with_timeout(Duration::from_secs(300));
     fetcher.update_downloader().await?;
     println!("Done.");
 
