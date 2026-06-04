@@ -1,28 +1,24 @@
 mod utils;
-// use utils::extract_youtube_id;
 use utils::*;
 
 use clap::Parser;
 use std::error::Error;
-use std::time::Duration;
 use std::fmt;
 use std::fs;
-use std::path::Path;
 use std::path::PathBuf;
-use yt_dlp::fetcher::deps::LibraryInstaller;
-use yt_dlp::{Youtube, fetcher::deps::Libraries};
+use std::time::Duration;
+use yt_dlp::client::deps::{Libraries, LibraryInstaller};
+use yt_dlp::model::Video;
+use yt_dlp::utils::validation::sanitize_filename;
+use yt_dlp::Downloader;
 
-// Build the release version
-// cargo build --release
-
-// ./youtube_downloader --url="https://www.youtube.com/watch?v=bMf3fmAQI8A"
-
-// VS Code format code shortcut: SHIFT + OPTION + F
-
-// echo "alias ytdl='/Users/martinberger/Dev/Rust/youtube_downloader/target/release/youtube_downloader'" >> ~/.zshrc
-// source ~/.zshrc
-
-// https://docs.rs/yt-dlp/latest/yt_dlp/
+fn default_output_dir() -> String {
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .map(|home| home.join("Downloads"))
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "Downloads".into())
+}
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -30,7 +26,7 @@ struct Args {
     url: Option<String>,
     #[arg(short, long)]
     file: Option<String>,
-    #[clap(short, long, default_value = "./downloads")]
+    #[arg(short, long, default_value_t = default_output_dir())]
     output: String,
     #[clap(short, long, default_value = "best")]
     quality: String,
@@ -69,71 +65,46 @@ impl From<std::io::Error> for TestError {
     }
 }
 
-// async fn download_url(url: &str, output: &str, quality: &str) -> Result<(), yt_dlp::error::Error> {
-//     let libraries_dir = PathBuf::from("libs");
-//     let output_dir = PathBuf::from(output);
-//     let youtube = libraries_dir.join("yt-dlp");
-//     let ffmpeg = libraries_dir.join("ffmpeg");
-
-//     println!("Paths: {:?}", libraries_dir.display());
-//     println!("Paths: {:?}", output_dir.display());
-//     println!("Paths: {:?}", youtube.display());
-//     println!("Paths: {:?}", ffmpeg.display());
-
-//     println!("Step: {}", 1);
-//     let libraries = Libraries::new(youtube, ffmpeg);
-//     println!("Step: {}", 2);
-
-//     let fetcher = Youtube::new(libraries, output_dir)?;
-//     println!("Step: {}", 3);
-//     fetcher.update_downloader().await?;
-//     println!("Step: {}", 4);
-
-//     let video = fetcher.fetch_video_infos(url.to_string()).await?;
-//     println!("Step: {}", 5);
-
-//     // let format = video
-//     //     .best_video_format()
-//     //     .ok_or_else(|| Err("No video format found"))?;
-//     let format = video
-//         .best_video_format()
-//         .ok_or_else(|| yt_dlp::error::Error::FormatNotFound("No video format found".to_string()))?;
-
-//     let filename = format!("%(title)s.%(ext)s");
-//     fetcher.download_format(format, &filename).await?;
-//     println!("Downloaded: {} to {}/{}", url, output, filename);
-//     Ok(())
-// }
+fn output_filename_for_video(video: &Video) -> String {
+    let stem = sanitize_filename(&video.title);
+    let stem = if stem.is_empty() || stem == "download" {
+        video.id.as_str()
+    } else {
+        stem.as_str()
+    };
+    format!("{stem}.mp4")
+}
 
 #[tokio::main]
 async fn main() -> Result<(), TestError> {
     let args = Args::parse();
 
     let libraries_dir = PathBuf::from("libs");
-    let output_dir = PathBuf::from("output");
+    let output_dir = PathBuf::from(&args.output);
+    fs::create_dir_all(&output_dir)?;
 
     let youtube = libraries_dir.join("yt-dlp");
     let ffmpeg = libraries_dir.join("ffmpeg");
 
     if !youtube.exists() {
         println!("Downloading youtube library.");
-        let destination = PathBuf::from("libs");
-        let installer = LibraryInstaller::new(destination);
-        installer.install_youtube(None).await.unwrap();
+        let installer = LibraryInstaller::new(libraries_dir.clone());
+        installer.install_youtube(None).await?;
     }
     if !ffmpeg.exists() {
         println!("Downloading ffmpeg library.");
-        let destination = PathBuf::from("libs");
-        let installer = LibraryInstaller::new(destination);
-        installer.install_ffmpeg(None).await.unwrap();
+        let installer = LibraryInstaller::new(libraries_dir.clone());
+        installer.install_ffmpeg(None).await?;
     }
 
     let libraries = Libraries::new(youtube, ffmpeg);
 
     println!("Updating yt-dlp executable.");
-    let mut fetcher = Youtube::new(libraries, output_dir)?;
-    fetcher.with_timeout(Duration::from_secs(300));
-    fetcher.update_downloader().await?;
+    let downloader = Downloader::builder(libraries, output_dir.clone())
+        .with_timeout(Duration::from_secs(300))
+        .build()
+        .await?;
+    downloader.update_downloader().await?;
     println!("Done.");
 
     let url = args
@@ -145,12 +116,14 @@ async fn main() -> Result<(), TestError> {
         .ok_or_else(|| TestError::UrlDownloadError("Error: YouTube id not found.".to_string()))?;
     println!("YouTube id: {}", youtube_id);
 
-    let output_filename = format!("{}.mp4", youtube_id);
+    println!("Fetching video metadata...");
+    let video = downloader.fetch_video_infos(&url).await?;
+    println!("Title: {}", video.title);
+
+    let output_filename = output_filename_for_video(&video);
     println!("Output filename: {}", output_filename);
 
-    let output_dir = "output";
-
-    let output_path = Path::new(output_dir).join(&output_filename);
+    let output_path = output_dir.join(&output_filename);
     println!("Output path: {}", output_path.display());
 
     if output_path.exists() {
@@ -160,12 +133,21 @@ async fn main() -> Result<(), TestError> {
         }
     }
 
-    let video_path = fetcher
-        .download_video_from_url(url.clone(), output_filename)
+    println!("Downloading video...");
+    let video_path = downloader
+        .download_video(&video, &output_filename)
         .await?;
-    println!("Successfully downloaded video to: {}", video_path.display());
+    println!(
+        "Successfully downloaded video to: {}",
+        video_path.display()
+    );
 
-    cleanup_temp_files(&output_dir, &youtube_id)?;
+    cleanup_temp_files(
+        output_dir
+            .to_str()
+            .ok_or_else(|| TestError::UrlDownloadError("Invalid output directory".to_string()))?,
+        &youtube_id,
+    )?;
 
     Ok(())
 }

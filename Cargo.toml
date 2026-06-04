@@ -5,5 +5,9 @@ edition = "2024"
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
-yt-dlp = { version = "1.3.4", features = ["tracing"] }
+yt-dlp = "=2.6.0"
 clap = { version = "4.5.38", features = ["derive"] }
+
+# yt-dlp 2.6 pins lofty 0.23.2, which is yanked on crates.io; use the author's fork.
+[patch.crates-io]
+lofty = { git = "https://github.com/boul2gom/lofty-rs", rev = "f8eef9d98b6fabe8514052375d16eb66e696fd88" }
