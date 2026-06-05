@@ -1,4 +1,5 @@
 mod utils;
+use utils::platform::{bundled_executable, default_output_dir, find_on_path};
 use utils::*;
 
 use clap::{ArgGroup, Parser};
@@ -6,7 +7,6 @@ use std::error::Error;
 use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::time::Duration;
 use yt_dlp::Downloader;
 use yt_dlp::client::deps::{Libraries, LibraryInstaller};
@@ -14,33 +14,20 @@ use yt_dlp::model::Video;
 use yt_dlp::model::playlist::{Playlist, PlaylistEntry};
 use yt_dlp::utils::validation::sanitize_filename;
 
-fn executable_path(name: &str) -> Option<PathBuf> {
-    let output = Command::new("which").arg(name).output().ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if path.is_empty() {
-        None
-    } else {
-        Some(PathBuf::from(path))
-    }
-}
-
 /// Resolve a yt-dlp `--js-runtimes` value with an absolute executable path when possible.
 fn resolve_js_runtime(explicit: Option<&str>) -> Option<String> {
     if let Some(runtime) = explicit {
         if runtime.contains(':') {
             return Some(runtime.to_string());
         }
-        if let Some(path) = executable_path(runtime) {
+        if let Some(path) = find_on_path(runtime) {
             return Some(format!("{}:{}", runtime, path.display()));
         }
         return Some(runtime.to_string());
     }
 
     for name in ["deno", "node"] {
-        if let Some(path) = executable_path(name) {
+        if let Some(path) = find_on_path(name) {
             return Some(format!("{name}:{}", path.display()));
         }
     }
@@ -58,14 +45,6 @@ fn write_ytdlp_portable_config(libraries_dir: &Path, js_runtime: &str) -> Result
     fs::write(&config_path, content)?;
     println!("Wrote yt-dlp config: {}", config_path.display());
     Ok(())
-}
-
-fn default_output_dir() -> String {
-    std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .map(|home| home.join("Downloads"))
-        .map(|p| p.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "Downloads".into())
 }
 
 #[derive(Parser, Debug)]
@@ -361,8 +340,8 @@ async fn main() -> Result<(), TestError> {
     let output_dir = PathBuf::from(&args.output);
     fs::create_dir_all(&output_dir)?;
 
-    let youtube = libraries_dir.join("yt-dlp");
-    let ffmpeg = libraries_dir.join("ffmpeg");
+    let youtube = bundled_executable(&libraries_dir, "yt-dlp");
+    let ffmpeg = bundled_executable(&libraries_dir, "ffmpeg");
 
     if !youtube.exists() {
         println!("Downloading youtube library.");

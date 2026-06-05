@@ -6,6 +6,7 @@ A small Rust CLI that downloads YouTube videos using [yt-dlp](https://github.com
 
 - [Rust](https://rustup.rs/) (edition 2024)
 - Network access on first run (to download `yt-dlp` and `ffmpeg` into `libs/` if missing)
+- **Windows:** [Node.js 22+](https://nodejs.org/) or [Deno 2.3+](https://deno.com/) on `PATH` for YouTube downloads (same as macOS/Linux)
 
 The project pins [`yt-dlp` 2.6.0](https://crates.io/crates/yt-dlp/2.6.0) and patches the yanked `lofty` crate via `Cargo.toml` (see `[patch.crates-io]`).
 
@@ -60,7 +61,7 @@ ytdl --cookies-from-browser=chrome --url="https://www.youtube.com/watch?v=VIDEO_
 
 Optional: `--cookies /path/to/cookies.txt` (Netscape format).
 
-**YouTube JS runtime:** Newer yt-dlp needs Deno or Node for YouTube ([EJS wiki](https://github.com/yt-dlp/yt-dlp/wiki/EJS)). The tool auto-detects `deno` or `node` on your `PATH` and writes `libs/yt-dlp.conf` (portable config beside the yt-dlp binary). Override with `--js-runtimes node` (Node 22+) or `--js-runtimes deno` (Deno 2.3+).
+**YouTube JS runtime:** Newer yt-dlp needs Deno or Node for YouTube ([EJS wiki](https://github.com/yt-dlp/yt-dlp/wiki/EJS)). The tool auto-detects `deno` or `node` on `PATH` (including `node.exe` / `deno.exe` on Windows) and writes `libs/yt-dlp.conf` beside the yt-dlp binary. Override with `--js-runtimes node` (Node 22+) or `--js-runtimes deno` (Deno 2.3+).
 
 During development:
 
@@ -84,7 +85,7 @@ Provide **either** `--url` or `--list` (not both).
 |------|-------|---------|-------------|
 | `--url` | `-u` | — | Single YouTube watch URL |
 | `--list` | `-l` | — | Playlist URL (`playlist?list=` or watch URL with `list=`) |
-| `--output` | `-o` | `~/Downloads` | Download directory (created if missing) |
+| `--output` | `-o` | `~/Downloads` (macOS/Linux) or `%USERPROFILE%\Downloads` (Windows) | Download directory (created if missing) |
 | `--wait-between-playlist-downloads` | — | `60` | Seconds to wait between playlist downloads |
 | `--playlist-start` | — | — | 1-based index to start from (only with `--list`) |
 | `--file` | — | — | Output filename override for `--url` only (sanitized; `.mp4` added if omitted) |
@@ -99,7 +100,7 @@ Downloads are saved as `{output}/{sanitized_title}.mp4` (falls back to video ID 
 
 Uses the [`yt-dlp`](https://docs.rs/yt-dlp/2.6.0/yt_dlp/) **2.6** crate. Subprocess calls (`yt-dlp`, `ffmpeg`) use a **5 minute** timeout (crate default is 30 seconds).
 
-1. Ensures `libs/yt-dlp` and `libs/ffmpeg` exist (installs them if missing).
+1. Ensures `libs/yt-dlp` and `libs/ffmpeg` exist (`yt-dlp.exe` / `ffmpeg.exe` on Windows; installs if missing).
 2. Updates the yt-dlp executable.
 3. **Single URL:** fetches metadata, builds filename from title, downloads one file.
 4. **Playlist:** fetches playlist entries, downloads each available video one at a time, waits `--wait` seconds between items (not after the last).
@@ -109,7 +110,18 @@ Uses the [`yt-dlp`](https://docs.rs/yt-dlp/2.6.0/yt_dlp/) **2.6** crate. Subproc
 
 - `src/main.rs` — CLI entry point
 - `libs/` — `yt-dlp`, `ffmpeg`, and auto-generated `yt-dlp.conf` (created on first run)
-- `~/Downloads/` — default location for downloaded videos (override with `-o`)
+- `~/Downloads/` or `%USERPROFILE%\Downloads` — default output (override with `-o`)
+
+## Windows
+
+Build and run from PowerShell or cmd (run from the project directory so `libs/` is created next to the working directory, or pass an absolute `-o`):
+
+```powershell
+cargo build --release
+.\target\release\youtube_downloader.exe --url="https://www.youtube.com/watch?v=VIDEO_ID"
+```
+
+Browser cookies: `--cookies-from-browser=chrome`, `edge`, `brave`, `firefox`, etc. (browser must be installed and you must be logged into YouTube).
 
 ## Example
 
